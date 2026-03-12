@@ -1,0 +1,157 @@
+// GovSignal Database Schema
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── USERS ──
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Stripe
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  plan                 Plan     @default(FREE)
+  planExpiresAt        DateTime?
+
+  // Company profile (used for AI scoring)
+  companyName   String?
+  naicsCode     String?
+  setAside      String?
+  targetAgency  String?
+  samApiKey     String?   // encrypted in practice; stored per-user
+
+  // Relations
+  savedOpps     SavedOpportunity[]
+  searches      SavedSearch[]
+  pastPerf      PastPerformance[]
+  digestSettings DigestSettings?
+  emailTokens   EmailVerificationToken[]
+
+  @@map("users")
+}
+
+enum Plan {
+  FREE       // 10 opps/day, no email digest
+  PRO        // $49/mo — unlimited opps, daily digest, AI scoring
+  AGENCY     // $149/mo — everything + team seats + competitor intel
+}
+
+// ── OPPORTUNITIES (cached from SAM.gov) ──
+model Opportunity {
+  id                    String   @id @default(cuid())
+  noticeId              String   @unique  // SAM.gov native ID
+  title                 String
+  agency                String?
+  subAgency             String?
+  naicsCode             String?
+  opportunityType       String?  // o, p, k, r, s, etc.
+  setAsideType          String?
+  setAsideDescription   String?
+  postedDate            DateTime?
+  responseDeadline      DateTime?
+  archiveDate           DateTime?
+  description           String?  @db.Text
+  uiLink                String?
+  solicitationNumber    String?
+  placeOfPerformance    String?
+  rawJson               Json?    // full SAM.gov response
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  savedBy    SavedOpportunity[]
+
+  @@index([naicsCode])
+  @@index([responseDeadline])
+  @@index([postedDate])
+  @@map("opportunities")
+}
+
+// ── SAVED OPPORTUNITIES (watchlist) ──
+model SavedOpportunity {
+  id             String      @id @default(cuid())
+  userId         String
+  opportunityId  String
+  notes          String?
+  savedAt        DateTime    @default(now())
+
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, opportunityId])
+  @@map("saved_opportunities")
+}
+
+// ── SAVED SEARCHES ──
+model SavedSearch {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  filters        Json     // { naics, setAside, agency, keyword, type, minValue, maxValue }
+  alertOn        Boolean  @default(true)  // email when new matches appear
+  lastAlertedAt  DateTime?                // FIX: track last alert to avoid duplicate notifications
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("saved_searches")
+}
+
+// ── PAST PERFORMANCE ──
+model PastPerformance {
+  id              String   @id @default(cuid())
+  userId          String
+  title           String
+  agency          String?
+  contractValue   Float?
+  year            Int?
+  outcome         String   @default("Won") // Won, Lost, Ongoing, Completed
+  description     String?  @db.Text
+  naicsCode       String?
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("past_performance")
+}
+
+// ── EMAIL DIGEST SETTINGS ──
+model DigestSettings {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  enabled      Boolean   @default(true)
+  frequency    String    @default("daily")  // daily, weekly
+  sendTime     String    @default("08:00")  // HH:MM UTC
+  minScore     Int       @default(60)       // only include opps above this score
+  lastSentAt   DateTime?
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("digest_settings")
+}
+
+// ── EMAIL VERIFICATION TOKENS ──
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  type      String   // verify_email, reset_password
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_tokens")
+}
