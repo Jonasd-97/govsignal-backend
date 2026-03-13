@@ -71,8 +71,8 @@ app.post('/admin/sync', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
-    const { runSamSync } = require('./jobs/samSyncJob');
-    runSamSync().catch(console.error);
+    const { startSamSyncJob } = require('./jobs/samSyncJob');
+    startSamSyncJob();
     res.json({ message: 'Sync started' });
   } catch (err) {
     res.status(500).json({ error: err.message });
