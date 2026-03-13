@@ -65,7 +65,19 @@ app.use((err, _req, res, _next) => {
     error: process.env.NODE_ENV === "production" ? "Internal server error" : err.message,
   });
 });
-
+// Admin sync trigger
+app.post('/admin/sync', async (req, res) => {
+  if (req.headers['x-admin-key'] !== process.env.JWT_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const { runSamSync } = require('./jobs/samSyncJob');
+    runSamSync().catch(console.error);
+    res.json({ message: 'Sync started' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // ── START ──
 app.listen(PORT, async () => {
   logger.info(`GovSignal API running on port ${PORT}`);

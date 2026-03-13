@@ -78,4 +78,4 @@ function startSamSyncJob() {
   logger.info("SAM.gov sync job scheduled (runs every 6 hours)");
 }
 
-module.exports = { startSamSyncJob };
+module.exports = { startSamSyncJob, runSamSync };
