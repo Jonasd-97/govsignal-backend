@@ -84,6 +84,15 @@ app.use((req, _res, next) => {
    ROUTES
 ========================= */
 
+console.log('authRoutes:', typeof authRoutes, authRoutes);
+console.log('opportunityRoutes:', typeof opportunityRoutes, opportunityRoutes);
+console.log('watchlistRoutes:', typeof watchlistRoutes, watchlistRoutes);
+console.log('searchRoutes:', typeof searchRoutes, searchRoutes);
+console.log('performanceRoutes:', typeof performanceRoutes, performanceRoutes);
+console.log('digestRoutes:', typeof digestRoutes, digestRoutes);
+console.log('stripeRoutes:', typeof stripeRoutes, stripeRoutes);
+console.log('aiRoutes:', typeof aiRoutes, aiRoutes);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/opportunities', opportunityRoutes);
 app.use('/api/watchlist', watchlistRoutes);
