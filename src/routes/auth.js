@@ -35,10 +35,12 @@ router.post('/register', [
     logger.info(`New user registered: ${email}`);
     res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, plan: user.plan } });
   } catch (err) {
-    logger.error('Register error:', err);
-    res.status(500).json({ error: 'Registration failed' });
-  }
-});
+    console.error('REGISTER ERROR:', err);
+    return res.status(500).json({
+      error: 'Registration failed',
+      details: err.message,
+   });
+}
 
 router.post('/login', [
   body('email').isEmail().normalizeEmail(),
