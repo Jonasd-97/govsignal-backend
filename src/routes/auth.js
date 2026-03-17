@@ -41,7 +41,7 @@ router.post('/register', [
       details: err.message,
    });
 }
-
+});
 router.post('/login', [
   body('email').isEmail().normalizeEmail(),
   body('password').notEmpty(),
