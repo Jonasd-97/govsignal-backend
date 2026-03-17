@@ -1,57 +1,76 @@
-// ── WATCHLIST ROUTES ──
-const express = require("express");
-const { authenticate } = require("../middleware/auth");
+const express = require('express');
+const { body, param } = require('express-validator');
+const { authenticate } = require('../middleware/auth');
+const { handleValidation } = require('../utils/validation');
 const router = express.Router();
 
-// GET /api/watchlist
-router.get("/", authenticate, async (req, res) => {
+router.get('/', authenticate, async (req, res) => {
   try {
     const saved = await req.prisma.savedOpportunity.findMany({
       where: { userId: req.userId },
       include: { opportunity: true },
-      orderBy: { savedAt: "desc" },
+      orderBy: { savedAt: 'desc' },
     });
     res.json(saved);
   } catch {
-    res.status(500).json({ error: "Failed to fetch watchlist" });
+    res.status(500).json({ error: 'Failed to fetch watchlist' });
   }
 });
 
-// POST /api/watchlist
-router.post("/", authenticate, async (req, res) => {
-  const { noticeId, title, agency, naicsCode, opportunityType, setAsideDescription,
-          postedDate, responseDeadline, uiLink, notes } = req.body;
-  if (!noticeId) return res.status(400).json({ error: "noticeId required" });
+router.post('/', authenticate, [
+  body('noticeId').isLength({ min: 4, max: 100 }),
+  body('title').optional().isLength({ max: 500 }),
+  body('agency').optional().isLength({ max: 200 }),
+  body('naicsCode').optional().isLength({ max: 10 }),
+  body('opportunityType').optional().isLength({ max: 20 }),
+  body('setAsideDescription').optional().isLength({ max: 200 }),
+  body('uiLink').optional().isURL(),
+  body('notes').optional().isLength({ max: 2000 }),
+], async (req, res) => {
+  if (!handleValidation(req, res)) return;
+  const { noticeId, title, agency, naicsCode, opportunityType, setAsideDescription, postedDate, responseDeadline, uiLink, notes } = req.body;
   try {
-    // Upsert the opportunity into our cache
     const opp = await req.prisma.opportunity.upsert({
       where: { noticeId },
-      update: {},
-      create: { noticeId, title, agency, naicsCode, opportunityType, setAsideDescription, postedDate: postedDate ? new Date(postedDate) : null, responseDeadline: responseDeadline ? new Date(responseDeadline) : null, uiLink },
+      update: {
+        ...(title ? { title } : {}),
+        ...(agency ? { agency } : {}),
+        ...(naicsCode ? { naicsCode } : {}),
+        ...(opportunityType ? { opportunityType } : {}),
+        ...(setAsideDescription ? { setAsideDescription } : {}),
+        ...(postedDate ? { postedDate: new Date(postedDate) } : {}),
+        ...(responseDeadline ? { responseDeadline: new Date(responseDeadline) } : {}),
+        ...(uiLink ? { uiLink } : {}),
+      },
+      create: {
+        noticeId, title: title || 'Untitled', agency, naicsCode, opportunityType, setAsideDescription,
+        postedDate: postedDate ? new Date(postedDate) : null,
+        responseDeadline: responseDeadline ? new Date(responseDeadline) : null,
+        uiLink,
+      },
     });
+
     const saved = await req.prisma.savedOpportunity.upsert({
       where: { userId_opportunityId: { userId: req.userId, opportunityId: opp.id } },
-      update: { notes },
+      update: { ...(notes !== undefined ? { notes } : {}) },
       create: { userId: req.userId, opportunityId: opp.id, notes },
       include: { opportunity: true },
     });
     res.status(201).json(saved);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to save opportunity" });
+  } catch {
+    res.status(500).json({ error: 'Failed to save opportunity' });
   }
 });
 
-// DELETE /api/watchlist/:noticeId
-router.delete("/:noticeId", authenticate, async (req, res) => {
+router.delete('/:noticeId', authenticate, [param('noticeId').isLength({ min: 4, max: 100 })], async (req, res) => {
+  if (!handleValidation(req, res)) return;
   try {
     const opp = await req.prisma.opportunity.findUnique({ where: { noticeId: req.params.noticeId } });
-    if (!opp) return res.status(404).json({ error: "Not found" });
-    await req.prisma.savedOpportunity.deleteMany({
-      where: { userId: req.userId, opportunityId: opp.id },
-    });
+    if (!opp) return res.status(404).json({ error: 'Not found' });
+    await req.prisma.savedOpportunity.deleteMany({ where: { userId: req.userId, opportunityId: opp.id } });
     res.json({ deleted: true });
   } catch {
-    res.status(500).json({ error: "Failed to remove from watchlist" });
+    res.status(500).json({ error: 'Failed to remove from watchlist' });
   }
 });
 
