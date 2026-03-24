@@ -3,12 +3,11 @@
   "version": "1.0.0",
   "description": "GovSignal backend API",
   "main": "src/index.js",
-"scripts": {
-  "dev": "nodemon src/index.js",
-  "start": "node src/index.js",
-  "start:prod": "node src/index.js"
-},
-```
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "start:prod": "node src/index.js"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.9",
     "@prisma/client": "^6.19.2",
@@ -34,3 +33,4 @@
     "prisma": "^6.0.0"
   }
 }
+```
