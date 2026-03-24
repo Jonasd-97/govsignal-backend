@@ -1,13 +1,11 @@
 const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
-const { fetchAndScore } = require('../services/samService');
+const { scoreOpportunity, extractValueInfo } = require('../services/samService');
 const emailService = require('../services/emailService');
 const logger = require('../services/logger');
 
-const prisma = new PrismaClient();
 let digestTask;
 
-function startDigestJob() {
+function startDigestJob(prisma) {
   if (digestTask) return digestTask;
 
   digestTask = cron.schedule('0 * * * *', async () => {
@@ -25,12 +23,38 @@ function startDigestJob() {
 
       for (const user of users) {
         try {
-          const opps = await fetchAndScore({ daysBack: 1 }, user, user.samApiKey || process.env.SAM_GOV_API_KEY);
+          // Query database instead of hitting SAM.gov
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+
+          const opps = await prisma.opportunity.findMany({
+            where: {
+              postedDate: { gte: yesterday },
+              OR: [
+                { responseDeadline: null },
+                { responseDeadline: { gte: new Date() } },
+              ],
+            },
+            orderBy: { postedDate: 'desc' },
+            take: 100,
+          });
+
           const minScore = user.digestSettings?.minScore || 60;
-          const filtered = opps.filter((o) => o.score >= minScore);
-          if (filtered.length > 0) {
-            await emailService.sendDigest(user, filtered);
+
+          const scored = opps
+            .map((opp) => {
+              const valueInfo = extractValueInfo(opp.rawJson || opp);
+              const scoring = scoreOpportunity(opp, user);
+              return { ...opp, ...valueInfo, ...scoring };
+            })
+            .filter((o) => o.score >= minScore)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 20);
+
+          if (scored.length > 0) {
+            await emailService.sendDigest(user, scored);
           }
+
           await prisma.digestSettings.update({
             where: { userId: user.id },
             data: { lastSentAt: new Date() },
