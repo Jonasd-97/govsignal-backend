@@ -232,4 +232,20 @@ router.post('/extract-text', authenticate, requirePlan('PRO', 'AGENCY'), upload.
   }
 });
 
+router.post('/summarize', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, [body('description').isString()], async (req, res) => {
+  if (!handleValidation(req, res)) return;
+  const { title, agency, description } = req.body;
+  try {
+    const text = await callClaude(
+      'You are a GovCon expert. Summarize federal contract opportunities in plain English for busy contractors. Be concise and specific. Respond with only the summary text, no preamble.',
+      `Summarize this federal contract opportunity in 3-4 plain English sentences. Focus on: what work is needed, who the customer is, key requirements, and any notable constraints. Avoid jargon.\n\nTitle: ${title}\nAgency: ${agency || 'Unknown'}\nDescription: ${description.slice(0, 4000)}`,
+      400
+    );
+    res.json({ summary: text.trim() });
+  } catch (err) {
+    logger.error('AI summarize error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
