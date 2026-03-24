@@ -56,6 +56,12 @@ router.get('/', authenticate, [
 
     let filtered = opps;
 
+    if (naicsCode) {
+      filtered = filtered.filter((o) =>
+        o.naicsCode && o.naicsCode.startsWith(String(naicsCode).substring(0, 4))
+      );
+    }
+
     if (agency) {
       filtered = filtered.filter((o) =>
         o.agency?.toLowerCase().includes(String(agency).toLowerCase())
