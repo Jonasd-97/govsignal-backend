@@ -1,9 +1,29 @@
 const express = require('express');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 const { body } = require('express-validator');
-const { authenticate, requirePlan } = require('../middleware/auth');
+const { authenticate, requirePlan, checkAiLimit } = require('../middleware/auth');
 const logger = require('../services/logger');
 const { handleValidation } = require('../utils/validation');
 const { parseModelJson, coerceAnalyzeResponse, coerceScoreResponse } = require('../utils/ai');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+async function extractTextFromBuffer(buffer, mimetype) {
+  if (mimetype === 'application/pdf') {
+    const data = await pdfParse(buffer);
+    return data.text || '';
+  }
+  if (
+    mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    mimetype === 'application/msword'
+  ) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || '';
+  }
+  throw new Error('Unsupported file type. Please upload a PDF or Word document.');
+}
 
 const router = express.Router();
 
@@ -35,7 +55,7 @@ async function callClaude(system, userMessage, maxTokens = 1200) {
   return data.content?.[0]?.text || '';
 }
 
-router.post('/analyze', authenticate, requirePlan('PRO', 'AGENCY'), [body('opportunity').isObject()], async (req, res) => {
+router.post('/analyze', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, [body('opportunity').isObject()], async (req, res) => {
   if (!handleValidation(req, res)) return;
   const { opportunity, profile = {} } = req.body;
   const intel = opportunity.intel || {};
@@ -62,7 +82,7 @@ router.post('/analyze', authenticate, requirePlan('PRO', 'AGENCY'), [body('oppor
   }
 });
 
-router.post('/proposal', authenticate, requirePlan('PRO', 'AGENCY'), [body('docType').notEmpty(), body('opportunity').isObject()], async (req, res) => {
+router.post('/proposal', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, [body('docType').notEmpty(), body('opportunity').isObject()], async (req, res) => {
   if (!handleValidation(req, res)) return;
   const { docType, opportunity, profile = {}, pastPerf = [] } = req.body;
   const profileContext = [
@@ -97,7 +117,7 @@ router.post('/proposal', authenticate, requirePlan('PRO', 'AGENCY'), [body('docT
   }
 });
 
-router.post('/score', authenticate, requirePlan('PRO', 'AGENCY'), [body('document').isString(), body('opportunity').isObject()], async (req, res) => {
+router.post('/score', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, [body('document').isString(), body('opportunity').isObject()], async (req, res) => {
   if (!handleValidation(req, res)) return;
   const { docType, docTypeLabel, document, opportunity } = req.body;
   const oppContext = `Title: ${opportunity.title}\nAgency: ${opportunity.agency || 'Unknown'}\nNAICS: ${opportunity.naicsCode || 'Not specified'}\nSet-Aside: ${opportunity.setAside || 'None'}\nDescription: ${opportunity.description || 'Not available'}`.trim();
@@ -111,6 +131,104 @@ router.post('/score', authenticate, requirePlan('PRO', 'AGENCY'), [body('documen
   } catch (err) {
     logger.error('AI score error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/extract-performance', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+
+    const rawText = await extractTextFromBuffer(req.file.buffer, req.file.mimetype);
+    if (!rawText || rawText.trim().length < 50) {
+      return res.status(422).json({ error: 'Could not extract readable text from this document.' });
+    }
+
+    const prompt = `You are a GovCon expert. The following is text extracted from a government contract document, award notice, or past performance record.
+
+Extract the following fields. If a field is not clearly present, return an empty string — do not guess.
+
+Return ONLY a JSON object with these exact keys:
+- title: project or contract title
+- agency: government agency name
+- contractValue: numeric value as a string (e.g. "450000"), no symbols
+- contractValueNum: the contract value as a number (e.g. 450000), or null if not found
+- year: 4-digit year the contract was awarded or performed (e.g. "2023")
+- outcome: one of "Won", "Completed", "Ongoing", or "Lost"
+- naicsCode: 6-digit NAICS code if mentioned
+- description: a clean 2-4 sentence summary of what work was performed, suitable for a past performance record
+- capabilityTags: array of 3-6 short strings describing the firm's demonstrated capabilities (e.g. ["IT services", "DoD experience", "systems integration"])
+- technicalAreas: array of 2-4 short strings for technical domains (e.g. ["cybersecurity", "cloud migration"])
+
+Document text:
+---
+${rawText.slice(0, 6000)}
+---
+
+Return ONLY valid JSON. No markdown, no explanation.`;
+
+    const text = await callClaude(
+      'You are a GovCon expert that extracts structured data from contract documents. Respond ONLY in JSON — no markdown, no preamble.',
+      prompt,
+      1000
+    );
+
+    const extracted = parseModelJson(text);
+
+    // ── Build and merge capability profile ──────────────────────────────────
+    // Fetch existing profile so we accumulate data across multiple docs dropped
+    const currentUser = await req.prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { capabilityProfile: true, naicsCode: true, targetAgency: true },
+    });
+
+    const existing = currentUser.capabilityProfile || {};
+    const mergedProfile = {
+      capabilityTags: [...new Set([...(existing.capabilityTags || []), ...(extracted.capabilityTags || [])])].slice(0, 20),
+      naicsCodes: [...new Set([...(existing.naicsCodes || []), ...(extracted.naicsCode ? [extracted.naicsCode] : [])])].slice(0, 10),
+      agencies: [...new Set([...(existing.agencies || []), ...(extracted.agency ? [extracted.agency] : [])])].slice(0, 10),
+      technicalAreas: [...new Set([...(existing.technicalAreas || []), ...(extracted.technicalAreas || [])])].slice(0, 15),
+      contractValues: [...(existing.contractValues || []), ...(extracted.contractValueNum ? [extracted.contractValueNum] : [])].slice(-20),
+      lastUpdated: new Date().toISOString(),
+      docsAnalyzed: (existing.docsAnalyzed || 0) + 1,
+    };
+
+    // Compute average contract value for scoring context
+    if (mergedProfile.contractValues.length > 0) {
+      mergedProfile.avgContractValue = Math.round(
+        mergedProfile.contractValues.reduce((a, b) => a + b, 0) / mergedProfile.contractValues.length
+      );
+    }
+
+    // Save capability profile + auto-fill standard profile fields if they're blank
+    const profileUpdates = { capabilityProfile: mergedProfile };
+    if (!currentUser.naicsCode && extracted.naicsCode) profileUpdates.naicsCode = extracted.naicsCode;
+    if (!currentUser.targetAgency && extracted.agency) profileUpdates.targetAgency = extracted.agency;
+
+    await req.prisma.user.update({
+      where: { id: req.userId },
+      data: profileUpdates,
+    });
+
+    res.json({ ...extracted, capabilityProfile: mergedProfile });
+  } catch (err) {
+    logger.error('extract-performance error:', err);
+    res.status(500).json({ error: err.message || 'Failed to extract document.' });
+  }
+});
+
+router.post('/extract-text', authenticate, requirePlan('PRO', 'AGENCY'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+
+    const text = await extractTextFromBuffer(req.file.buffer, req.file.mimetype);
+    if (!text || text.trim().length < 50) {
+      return res.status(422).json({ error: 'Could not extract readable text from this document.' });
+    }
+
+    res.json({ text: text.slice(0, 20000) });
+  } catch (err) {
+    logger.error('extract-text error:', err);
+    res.status(500).json({ error: err.message || 'Failed to extract text.' });
   }
 });
 

@@ -24,15 +24,15 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 
-/* =========================
-   CORS CONFIG (FIXED)
-========================= */
-
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'https://govsignal.vercel.app',
 ];
+
+const isLocalhost = (origin) => {
+  return origin && origin.startsWith('http://localhost:');
+};
 
 const isVercelPreview = (origin) => {
   return /^https:\/\/govsignal-.*\.vercel\.app$/.test(origin);
@@ -42,7 +42,11 @@ const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin) || isVercelPreview(origin)) {
+    if (
+      allowedOrigins.includes(origin) ||
+      isLocalhost(origin) ||
+      isVercelPreview(origin)
+    ) {
       return callback(null, true);
     }
 

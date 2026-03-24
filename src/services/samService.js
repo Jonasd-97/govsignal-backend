@@ -1,6 +1,7 @@
 const axios = require('axios');
 const logger = require('./logger');
 const { decryptIfPossible } = require('../utils/crypto');
+const { DUMMY_OPPORTUNITIES } = require('./dummyData');
 
 const SAM_BASE = 'https://api.sam.gov/prod/opportunities/v2/search';
 
@@ -8,6 +9,110 @@ const SET_ASIDE_MAP = {
   SBA: 'small business', '8AN': '8(a)', HZC: 'hubzone',
   SDVOSBC: 'sdvosb', WOSB: 'wosb', EDWOSB: 'edwosb', VSB: 'veteran',
 };
+
+function toNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(String(value).replace(/[$,]/g, '').trim());
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function compactLabel(min, max) {
+  if (min !== null && max !== null) {
+    if (min === max) return formatCurrency(min);
+    return `${formatCurrency(min)} - ${formatCurrency(max)}`;
+  }
+  if (min !== null) return `From ${formatCurrency(min)}`;
+  if (max !== null) return `Up to ${formatCurrency(max)}`;
+  return null;
+}
+
+function scaleAmount(numberPart, unitPart) {
+  const base = Number(String(numberPart).replace(/,/g, ''));
+  if (!Number.isFinite(base)) return null;
+
+  const unit = String(unitPart || '').toLowerCase();
+  if (unit === 'b' || unit === 'billion') return base * 1_000_000_000;
+  if (unit === 'm' || unit === 'million') return base * 1_000_000;
+  if (unit === 'k' || unit === 'thousand') return base * 1_000;
+  return base;
+}
+
+function extractValueInfo(raw = {}) {
+  const candidates = [
+    { min: raw.award?.amount, max: raw.award?.amount, source: 'award.amount' },
+    { min: raw.awardAmount, max: raw.awardAmount, source: 'awardAmount' },
+    { min: raw.baseAndAllOptionsValue, max: raw.baseAndAllOptionsValue, source: 'baseAndAllOptionsValue' },
+    { min: raw.baseAndAllOptionsEstimatedValue, max: raw.baseAndAllOptionsEstimatedValue, source: 'baseAndAllOptionsEstimatedValue' },
+    { min: raw.estimatedValue, max: raw.estimatedValue, source: 'estimatedValue' },
+    { min: raw.minimumAwardAmount, max: raw.maximumAwardAmount, source: 'minimumAwardAmount/maximumAwardAmount' },
+    { min: raw.minAwardAmount, max: raw.maxAwardAmount, source: 'minAwardAmount/maxAwardAmount' },
+  ];
+
+  for (const candidate of candidates) {
+    const min = toNumber(candidate.min);
+    const max = toNumber(candidate.max);
+
+    if (min !== null || max !== null) {
+      const normalizedMin = min !== null ? min : max;
+      const normalizedMax = max !== null ? max : min;
+
+      return {
+        valueMin: normalizedMin,
+        valueMax: normalizedMax,
+        valueLabel: compactLabel(normalizedMin, normalizedMax),
+        valueSource: candidate.source,
+      };
+    }
+  }
+
+  const text = `${raw.description || ''} ${raw.title || ''}`;
+
+  const rangeMatch = text.match(
+    /\$?\s*([\d,]+(?:\.\d+)?)\s*(k|m|b|thousand|million|billion)?\s*(?:to|-)\s*\$?\s*([\d,]+(?:\.\d+)?)\s*(k|m|b|thousand|million|billion)?/i
+  );
+
+  if (rangeMatch) {
+    const min = scaleAmount(rangeMatch[1], rangeMatch[2]);
+    const max = scaleAmount(rangeMatch[3], rangeMatch[4]);
+
+    return {
+      valueMin: min,
+      valueMax: max,
+      valueLabel: compactLabel(min, max),
+      valueSource: 'description_range',
+    };
+  }
+
+  const singleMatch = text.match(
+    /\$?\s*([\d,]+(?:\.\d+)?)\s*(k|m|b|thousand|million|billion)\b/i
+  );
+
+  if (singleMatch) {
+    const value = scaleAmount(singleMatch[1], singleMatch[2]);
+
+    return {
+      valueMin: value,
+      valueMax: value,
+      valueLabel: compactLabel(value, value),
+      valueSource: 'description_single',
+    };
+  }
+
+  return {
+    valueMin: null,
+    valueMax: null,
+    valueLabel: null,
+    valueSource: null,
+  };
+}
 
 function getEffectiveApiKey(apiKey) {
   return decryptIfPossible(apiKey) || process.env.SAM_GOV_API_KEY;
@@ -19,6 +124,10 @@ function formatDate(d) {
 
 async function fetchOpportunities(filters = {}, apiKey) {
   const key = getEffectiveApiKey(apiKey);
+
+  console.log('SAM KEY PRESENT:', Boolean(key));
+  console.log('SAM KEY PREFIX:', key ? `${String(key).slice(0, 6)}...` : 'NONE');
+
   if (!key) throw new Error('No SAM.gov API key available');
 
   const today = new Date();
@@ -38,6 +147,8 @@ async function fetchOpportunities(filters = {}, apiKey) {
   if (filters.noticeId) params.noticeid = filters.noticeId;
   if (filters.solicitationNumber) params.solicitationNumber = filters.solicitationNumber;
 
+  console.log('SAM PARAMS:', { ...params, api_key: '[REDACTED]' });
+
   logger.info(`Fetching SAM.gov opportunities with filters: ${JSON.stringify({ ...params, api_key: '[REDACTED]' })}`);
 
   const res = await axios.get(SAM_BASE, {
@@ -46,14 +157,26 @@ async function fetchOpportunities(filters = {}, apiKey) {
     validateStatus: (status) => status >= 200 && status < 500,
   });
 
+  console.log('SAM STATUS:', res.status);
+  console.log('SAM RESPONSE KEYS:', Object.keys(res.data || {}));
+  console.log('SAM TOTAL RECORDS:', res.data?.totalRecords);
+  console.log('SAM OPPS COUNT:', Array.isArray(res.data?.opportunitiesData) ? res.data.opportunitiesData.length : 'NOT_ARRAY');
+  console.log('SAM FIRST ITEM:', Array.isArray(res.data?.opportunitiesData) && res.data.opportunitiesData.length ? {
+    noticeId: res.data.opportunitiesData[0].noticeId,
+    title: res.data.opportunitiesData[0].title,
+    type: res.data.opportunitiesData[0].type,
+  } : null);
+
   if (res.status >= 400) {
-    throw new Error(`SAM.gov returned ${res.status}`);
+    throw new Error(`SAM.gov returned ${res.status}: ${JSON.stringify(res.data)}`);
   }
 
   return res.data?.opportunitiesData || [];
 }
 
 function normalizeOpportunity(raw) {
+  const valueInfo = extractValueInfo(raw);
+
   return {
     noticeId: raw.noticeId,
     title: raw.title || 'Untitled',
@@ -71,6 +194,10 @@ function normalizeOpportunity(raw) {
     solicitationNumber: raw.solicitationNumber || null,
     placeOfPerformance: raw.placeOfPerformance?.city?.name || raw.placeOfPerformance?.state?.name || null,
     rawJson: raw,
+    valueMin: valueInfo.valueMin,
+    valueMax: valueInfo.valueMax,
+    valueLabel: valueInfo.valueLabel,
+    valueSource: valueInfo.valueSource,
   };
 }
 
@@ -135,14 +262,28 @@ function scoreOpportunity(opp, profile) {
 }
 
 async function fetchAndScore(filters, profile, apiKey) {
+  if (process.env.USE_DUMMY_DATA === 'true') {
+    logger.info('Using dummy data mode');
+    return DUMMY_OPPORTUNITIES
+      .map((opp) => {
+        const scoring = scoreOpportunity(opp, profile);
+        return { ...opp, ...scoring };
+      })
+      .sort((a, b) => b.score - a.score);
+  }
+
   const raw = await fetchOpportunities(filters, apiKey);
-  return raw
-    .map((r) => {
-      const normalized = normalizeOpportunity(r);
-      const scoring = scoreOpportunity(normalized, profile);
-      return { ...normalized, ...scoring };
-    })
-    .sort((a, b) => b.score - a.score);
+  console.log('RAW BEFORE NORMALIZE:', raw.length);
+
+  const normalized = raw.map((r) => {
+    const opp = normalizeOpportunity(r);
+    const scoring = scoreOpportunity(opp, profile);
+    return { ...opp, ...scoring };
+  });
+
+  console.log('NORMALIZED COUNT:', normalized.length);
+
+  return normalized.sort((a, b) => b.score - a.score);
 }
 
 async function fetchOpportunityByNoticeId(noticeId, apiKey) {
@@ -164,4 +305,5 @@ module.exports = {
   scoreOpportunity,
   fetchAndScore,
   getEffectiveApiKey,
+  extractValueInfo,
 };

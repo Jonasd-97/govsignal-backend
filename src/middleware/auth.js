@@ -1,5 +1,7 @@
 const jwt = require("jsonwebtoken");
 
+const PRO_MONTHLY_LIMIT = 50;
+
 // Verify JWT and attach user to request
 const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -44,4 +46,55 @@ const requirePlan = (...plans) => async (req, res, next) => {
   }
 };
 
-module.exports = { authenticate, requirePlan };
+// Check and increment AI usage counter
+// PRO: 50 calls/month. AGENCY: unlimited.
+// Must run AFTER authenticate + requirePlan so req.userPlan is set.
+const checkAiLimit = async (req, res, next) => {
+  try {
+    // Agency is unlimited — skip entirely
+    if (req.userPlan === "AGENCY") return next();
+
+    const now = new Date();
+    const user = await req.prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { aiUsageCount: true, aiUsageResetAt: true, plan: true },
+    });
+
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Reset counter if we've passed the reset date (or it's never been set)
+    const needsReset = !user.aiUsageResetAt || now >= user.aiUsageResetAt;
+    if (needsReset) {
+      // Set next reset to 1st of next month at midnight UTC
+      const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      await req.prisma.user.update({
+        where: { id: req.userId },
+        data: { aiUsageCount: 1, aiUsageResetAt: nextReset },
+      });
+      return next();
+    }
+
+    // Block if PRO limit reached
+    if (user.aiUsageCount >= PRO_MONTHLY_LIMIT) {
+      return res.status(429).json({
+        error: `You've used all ${PRO_MONTHLY_LIMIT} AI analyses for this month.`,
+        usageCount: user.aiUsageCount,
+        limit: PRO_MONTHLY_LIMIT,
+        resetAt: user.aiUsageResetAt,
+        upgradeUrl: `${process.env.FRONTEND_URL}/pricing`,
+      });
+    }
+
+    // Increment counter and continue
+    await req.prisma.user.update({
+      where: { id: req.userId },
+      data: { aiUsageCount: { increment: 1 } },
+    });
+
+    next();
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to check usage limit" });
+  }
+};
+
+module.exports = { authenticate, requirePlan, checkAiLimit };

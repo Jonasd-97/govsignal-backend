@@ -1,4 +1,4 @@
-// GovSignal Database Schema
+// HelixGov Database Schema
 // Run: npx prisma migrate dev --name init
 
 generator client {
@@ -25,38 +25,50 @@ model User {
   plan                 Plan     @default(FREE)
   planExpiresAt        DateTime?
 
+  // Email verification
+  emailVerified Boolean @default(false)
+
   // Company profile (used for AI scoring)
-  companyName   String?
-  naicsCode     String?
-  setAside      String?
-  targetAgency  String?
-  samApiKey     String?   // encrypted in practice; stored per-user
+  companyName      String?
+  naicsCode        String?
+  setAside         String?
+  targetAgency     String?
+  yearsInBusiness  String?
+  samApiKey        String?
+
+  // AI usage tracking (PRO: 50/mo, AGENCY: unlimited)
+  aiUsageCount    Int       @default(0)
+  aiUsageResetAt  DateTime?
+
+  // AI-built capability profile (updated each time a doc is dropped)
+  // Stores: { capabilityTags, naicsCodes, agencies, dollarRanges, technicalAreas, lastUpdated }
+  capabilityProfile Json?
 
   // Relations
-  savedOpps     SavedOpportunity[]
-  searches      SavedSearch[]
-  pastPerf      PastPerformance[]
+  savedOpps      SavedOpportunity[]
+  searches       SavedSearch[]
+  pastPerf       PastPerformance[]
   digestSettings DigestSettings?
-  emailTokens   EmailVerificationToken[]
+  emailTokens    EmailVerificationToken[]
 
   @@map("users")
 }
 
 enum Plan {
-  FREE       // 10 opps/day, no email digest
-  PRO        // $49/mo — unlimited opps, daily digest, AI scoring
-  AGENCY     // $149/mo — everything + team seats + competitor intel
+  FREE       // search only, no AI
+  PRO        // $49/mo — AI features, daily digest
+  AGENCY     // $299/mo — everything + team seats + white-label
 }
 
 // ── OPPORTUNITIES (cached from SAM.gov) ──
 model Opportunity {
   id                    String   @id @default(cuid())
-  noticeId              String   @unique  // SAM.gov native ID
+  noticeId              String   @unique
   title                 String
   agency                String?
   subAgency             String?
   naicsCode             String?
-  opportunityType       String?  // o, p, k, r, s, etc.
+  opportunityType       String?
   setAsideType          String?
   setAsideDescription   String?
   postedDate            DateTime?
@@ -66,7 +78,7 @@ model Opportunity {
   uiLink                String?
   solicitationNumber    String?
   placeOfPerformance    String?
-  rawJson               Json?    // full SAM.gov response
+  rawJson               Json?
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -99,9 +111,9 @@ model SavedSearch {
   id             String   @id @default(cuid())
   userId         String
   name           String
-  filters        Json     // { naics, setAside, agency, keyword, type, minValue, maxValue }
-  alertOn        Boolean  @default(true)  // email when new matches appear
-  lastAlertedAt  DateTime?                // FIX: track last alert to avoid duplicate notifications
+  filters        Json
+  alertOn        Boolean  @default(true)
+  lastAlertedAt  DateTime?
   createdAt      DateTime @default(now())
 
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -117,7 +129,7 @@ model PastPerformance {
   agency          String?
   contractValue   Float?
   year            Int?
-  outcome         String   @default("Won") // Won, Lost, Ongoing, Completed
+  outcome         String   @default("Won")
   description     String?  @db.Text
   naicsCode       String?
   createdAt       DateTime @default(now())
@@ -132,9 +144,9 @@ model DigestSettings {
   id           String    @id @default(cuid())
   userId       String    @unique
   enabled      Boolean   @default(true)
-  frequency    String    @default("daily")  // daily, weekly
-  sendTime     String    @default("08:00")  // HH:MM UTC
-  minScore     Int       @default(60)       // only include opps above this score
+  frequency    String    @default("daily")
+  sendTime     String    @default("08:00")
+  minScore     Int       @default(60)
   lastSentAt   DateTime?
 
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -147,7 +159,7 @@ model EmailVerificationToken {
   id        String   @id @default(cuid())
   userId    String
   token     String   @unique
-  type      String   // verify_email, reset_password
+  type      String
   expiresAt DateTime
   usedAt    DateTime?
 
