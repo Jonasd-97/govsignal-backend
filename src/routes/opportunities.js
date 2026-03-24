@@ -58,7 +58,7 @@ router.get('/', authenticate, [
 
     if (naicsCode) {
       filtered = filtered.filter((o) =>
-        o.naicsCode && o.naicsCode.startsWith(String(naicsCode).substring(0, 4))
+        o.naicsCode && o.naicsCode.trim() === String(naicsCode).trim()
       );
     }
 
