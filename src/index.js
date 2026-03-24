@@ -21,6 +21,7 @@ const { startSamSyncJob } = require('./jobs/samSyncJob');
 const { startDigestJob } = require('./jobs/digestJob');
 
 const app = express();
+app.set('trust proxy', 1);
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 
