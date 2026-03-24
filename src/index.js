@@ -29,6 +29,8 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'https://govsignal.vercel.app',
+  'https://helixgov.com',
+  'https://www.helixgov.com',
 ];
 
 const isLocalhost = (origin) => {
