@@ -109,8 +109,8 @@ async function runSync(prisma, isManual = false) {
             const data = parseOpportunity(raw);
             await prisma.opportunity.upsert({
               where: { noticeId: data.noticeId },
-              update: { ...data, updatedAt: new Date() },
-              create: data,
+              update: { ...data, source: 'SAM', updatedAt: new Date() },
+              create: { ...data, source: 'SAM' },
             });
             totalUpserted++;
           } catch (err) {

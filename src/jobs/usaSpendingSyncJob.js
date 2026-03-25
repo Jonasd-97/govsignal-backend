@@ -267,8 +267,8 @@ async function runUsaSpendingSync(prisma, isManual = false) {
 
             await prisma.opportunity.upsert({
               where: { noticeId: data.noticeId },
-              update: { ...data, updatedAt: new Date() },
-              create: data,
+              update: { ...data, source: 'USASPENDING', updatedAt: new Date() },
+              create: { ...data, source: 'USASPENDING' },
             });
             totalUpserted++;
           } catch (err) {
