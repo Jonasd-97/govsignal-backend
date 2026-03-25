@@ -82,6 +82,129 @@ router.post('/analyze', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit
   }
 });
 
+router.post('/analyze-external', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, async (req, res) => {
+  const { url, text: pastedText, profile = {} } = req.body;
+
+  if (!url && !pastedText) {
+    return res.status(400).json({ error: 'Provide either a URL or solicitation text.' });
+  }
+
+  try {
+    let solicitation = '';
+    let sourceTitle = 'External Contract';
+    const sourceUrl = url || null;
+
+    if (url) {
+      const pageRes = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; HelixGov/1.0)' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!pageRes.ok) {
+        return res.status(422).json({ error: `Could not fetch URL (${pageRes.status}). Try pasting the solicitation text instead.` });
+      }
+
+      const html = await pageRes.text();
+      solicitation = html
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .slice(0, 8000);
+
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      if (titleMatch) sourceTitle = titleMatch[1].replace(/\s*[-|].*$/, '').trim();
+    } else {
+      solicitation = pastedText.slice(0, 8000);
+    }
+
+    if (solicitation.length < 50) {
+      return res.status(422).json({ error: 'Not enough text to analyze. Try pasting the full solicitation text.' });
+    }
+
+    const profileContext = [
+      profile.companyName && `Company: ${profile.companyName}`,
+      profile.naics && `Primary NAICS: ${profile.naics}${profile.naicsLabel ? ' — ' + profile.naicsLabel : ''}`,
+      profile.setAside && `Set-Aside Certification: ${profile.setAside}`,
+      profile.agency && `Target Agency: ${profile.agency}`,
+    ].filter(Boolean).join('\n') || 'No company profile set.';
+
+    const extractedRaw = await callClaude(
+      'You are a GovCon expert. Extract structured data from federal solicitation text. Respond ONLY in JSON — no markdown, no preamble.',
+      `Extract the following fields from this solicitation. Return ONLY a JSON object:
+- "title": contract or solicitation title
+- "agency": government agency name
+- "naicsCode": NAICS code if mentioned
+- "setAside": set-aside type if mentioned
+- "responseDeadline": deadline date/time if mentioned
+- "estimatedValue": estimated contract value as a number, or null
+- "description": clean 3-5 sentence summary of what work is needed
+
+SOLICITATION TEXT:
+${solicitation}`,
+      600
+    );
+
+    const extracted = parseModelJson(extractedRaw);
+
+    const oppContext = `Title: ${extracted.title || sourceTitle}
+Agency: ${extracted.agency || 'Unknown'}
+NAICS Code: ${extracted.naicsCode || 'Not specified'}
+Set-Aside: ${extracted.setAside || 'None'}
+Response Deadline: ${extracted.responseDeadline || 'Unknown'}
+Estimated Value: ${extracted.estimatedValue ? '$' + Number(extracted.estimatedValue).toLocaleString() : 'Not specified'}
+Description: ${extracted.description || solicitation.slice(0, 2000)}
+Source URL: ${sourceUrl || 'Pasted text'}`;
+
+    const analysisRaw = await callClaude(
+      'You are a GovCon expert analyst. Be direct, specific, and actionable. Respond ONLY in JSON — no markdown, no preamble.',
+      `Analyze this federal contract opportunity and return a JSON object with exactly these keys:
+- "verdict": one of "Strong Fit" | "Potential Fit" | "Weak Fit" | "Not Recommended"
+- "verdict_reason": 1 sentence
+- "win_probability": number 1-100
+- "estimated_value_analysis": 1-2 sentences
+- "key_requirements": array of 3-5 short strings
+- "strengths": array of 2-4 short strings
+- "risks": array of 2-4 short strings
+- "new_firm_assessment": 2-3 sentences
+- "next_steps": array of 3 short actionable strings
+- "teaming_suggestion": string or null
+
+COMPANY PROFILE:
+${profileContext}
+
+OPPORTUNITY:
+${oppContext}`,
+      1200
+    );
+
+    const analysis = coerceAnalyzeResponse(parseModelJson(analysisRaw));
+
+    res.json({
+      ...analysis,
+      extractedFields: {
+        title: extracted.title || sourceTitle,
+        agency: extracted.agency,
+        naicsCode: extracted.naicsCode,
+        setAside: extracted.setAside,
+        responseDeadline: extracted.responseDeadline,
+        estimatedValue: extracted.estimatedValue,
+        description: extracted.description,
+        sourceUrl,
+      },
+    });
+  } catch (err) {
+    logger.error('AI analyze-external error:', err);
+    if (err.name === 'TimeoutError') {
+      return res.status(422).json({ error: 'URL took too long to load. Try pasting the solicitation text instead.' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/proposal', authenticate, requirePlan('PRO', 'AGENCY'), checkAiLimit, [body('docType').notEmpty(), body('opportunity').isObject()], async (req, res) => {
   if (!handleValidation(req, res)) return;
   const { docType, opportunity, profile = {}, pastPerf = [] } = req.body;
