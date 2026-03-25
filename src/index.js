@@ -19,6 +19,7 @@ const aiRoutes = require('./routes/ai');
 // Jobs
 const { startSamSyncJob } = require('./jobs/samSyncJob');
 const { startDigestJob } = require('./jobs/digestJob');
+const { startUsaSpendingSyncJob } = require('./jobs/usaSpendingSyncJob');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -138,6 +139,21 @@ app.post('/admin/sync', async (req, res) => {
   }
 });
 
+app.post('/admin/sync-usaspending', async (req, res) => {
+  if (req.headers['x-admin-key'] !== process.env.ADMIN_SYNC_KEY) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const { runUsaSpendingSync } = require('./jobs/usaSpendingSyncJob');
+  try {
+    const result = await runUsaSpendingSync(prisma, true);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('USASpending sync error:', err);
+    res.status(500).json({ error: 'Sync failed' });
+  }
+});
+
 /* =========================
    BACKGROUND JOBS
 ========================= */
@@ -145,6 +161,7 @@ app.post('/admin/sync', async (req, res) => {
 if (process.env.ENABLE_JOBS === 'true') {
   startSamSyncJob(prisma);
   startDigestJob(prisma);
+  startUsaSpendingSyncJob(prisma, true); // runNow=true to backfill immediately on deploy
 }
 
 /* =========================
