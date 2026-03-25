@@ -20,7 +20,7 @@ function signToken(user) {
 
 // ── REGISTER ──────────────────────────────────────────────────────────────────
 router.post('/register', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail({ gmail_remove_subaddress: false }),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('name').optional().trim().isLength({ max: 100 }),
   body('companyName').optional().trim().isLength({ max: 200 }),
@@ -151,7 +151,7 @@ router.get('/verify-email', async (req, res) => {
 
 // ── RESEND VERIFICATION ───────────────────────────────────────────────────────
 router.post('/resend-verification', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail({ gmail_remove_subaddress: false }),
 ], async (req, res) => {
   if (!handleValidation(req, res)) return;
   const { email } = req.body;
@@ -193,7 +193,7 @@ router.post('/resend-verification', [
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 router.post('/login', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail({ gmail_remove_subaddress: false }),
   body('password').notEmpty(),
 ], async (req, res) => {
   if (!handleValidation(req, res)) return;
@@ -305,7 +305,7 @@ router.patch('/profile', authenticate, [
 
 // ── FORGOT PASSWORD ───────────────────────────────────────────────────────────
 router.post('/forgot-password', [
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail({ gmail_remove_subaddress: false }),
 ], async (req, res) => {
   if (!handleValidation(req, res)) return;
   const { email } = req.body;
