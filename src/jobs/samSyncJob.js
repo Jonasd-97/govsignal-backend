@@ -88,7 +88,7 @@ async function runSync(prisma, isManual = false) {
     logger.info(`[SAM Sync] ${totalAvailable} opportunities available from SAM.gov`);
 
     const allOpps = [...firstPage.opportunities];
-    const maxPages = Math.min(Math.ceil(totalAvailable / 100), 10);
+    const maxPages = Math.ceil(totalAvailable / 100);
 
     for (let i = 1; i < maxPages; i++) {
       const { opportunities } = await fetchPage(apiKey, fromStr, toStr, i * 100);
