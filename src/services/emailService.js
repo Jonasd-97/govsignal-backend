@@ -1,20 +1,28 @@
-const nodemailer = require('nodemailer');
 const logger = require('./logger');
 const { signUnsubscribeToken } = require('../utils/tokens');
 
 const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const API_URL = process.env.BACKEND_URL || process.env.API_URL || APP_URL;
 const FROM = process.env.EMAIL_FROM || 'HelixGov <no-reply@helixgov.com>';
+const RESEND_API_KEY = process.env.SMTP_PASS; // reuse existing env var
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT || 587),
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: process.env.SMTP_USER ? {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  } : undefined,
-});
+async function sendEmail({ to, subject, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ from: FROM, to, subject, html }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend API error: ${res.status} ${err}`);
+  }
+
+  return res.json();
+}
 
 function wrap(content, userId) {
   const unsubUrl = userId ? `${API_URL}/api/digest/unsubscribe?token=${encodeURIComponent(signUnsubscribeToken(userId))}` : null;
@@ -29,8 +37,7 @@ function wrap(content, userId) {
 
 async function sendWelcome(user) {
   try {
-    await transporter.sendMail({
-      from: FROM,
+    await sendEmail({
       to: user.email,
       subject: 'Welcome to HelixGov — Your federal bid intelligence platform',
       html: wrap(`
@@ -41,6 +48,7 @@ async function sendWelcome(user) {
         <a href="${APP_URL}" class="btn">Go to Dashboard →</a>
       `),
     });
+    logger.info(`Welcome email sent to ${user.email}`);
   } catch (err) {
     logger.error('Failed to send welcome email:', err);
   }
@@ -56,8 +64,7 @@ async function sendDigest(user, opportunities) {
   }).join('');
 
   try {
-    await transporter.sendMail({
-      from: FROM,
+    await sendEmail({
       to: user.email,
       subject: `HelixGov Daily Digest — ${opportunities.length} new opportunities`,
       html: wrap(`
@@ -76,8 +83,7 @@ async function sendDigest(user, opportunities) {
 async function sendPasswordReset(user, token) {
   const resetUrl = `${APP_URL}/reset-password?token=${encodeURIComponent(token)}`;
   try {
-    await transporter.sendMail({
-      from: FROM,
+    await sendEmail({
       to: user.email,
       subject: 'HelixGov — Reset your password',
       html: wrap(`
@@ -86,6 +92,7 @@ async function sendPasswordReset(user, token) {
         <a href="${resetUrl}" class="btn">Reset Password →</a>
       `),
     });
+    logger.info(`Password reset email sent to ${user.email}`);
   } catch (err) {
     logger.error('Failed to send password reset email:', err);
   }
@@ -94,8 +101,7 @@ async function sendPasswordReset(user, token) {
 async function sendSearchAlert(user, searchName, newOpportunities) {
   if (!newOpportunities.length) return;
   try {
-    await transporter.sendMail({
-      from: FROM,
+    await sendEmail({
       to: user.email,
       subject: `HelixGov Alert — ${newOpportunities.length} new match${newOpportunities.length > 1 ? 'es' : ''} for "${searchName}"`,
       html: wrap(`
@@ -113,8 +119,7 @@ async function sendSearchAlert(user, searchName, newOpportunities) {
 async function sendVerificationEmail(user, token) {
   const verifyUrl = `${API_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
   try {
-    await transporter.sendMail({
-      from: FROM,
+    await sendEmail({
       to: user.email,
       subject: 'HelixGov — Verify your email address',
       html: wrap(`
