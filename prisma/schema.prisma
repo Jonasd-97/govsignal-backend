@@ -60,7 +60,7 @@ enum Plan {
   AGENCY     // $299/mo — everything + team seats + white-label
 }
 
-// ── OPPORTUNITIES (cached from SAM.gov) ──
+// ── OPPORTUNITIES (cached from SAM.gov + USASpending) ──
 model Opportunity {
   id                    String   @id @default(cuid())
   noticeId              String   @unique
@@ -79,6 +79,7 @@ model Opportunity {
   solicitationNumber    String?
   placeOfPerformance    String?
   rawJson               Json?
+  source                String?  @default("SAM")  // "SAM" | "USASPENDING"
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -88,6 +89,7 @@ model Opportunity {
   @@index([naicsCode])
   @@index([responseDeadline])
   @@index([postedDate])
+  @@index([source])
   @@map("opportunities")
 }
 
