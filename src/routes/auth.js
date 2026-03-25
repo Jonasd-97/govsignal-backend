@@ -51,7 +51,7 @@ router.post('/register', [
         where: { id: user.id },
         data: { emailVerified: true },
       });
-      await emailService.sendWelcome(user);
+      emailService.sendWelcome(user).catch(err => console.error('Welcome email failed:', err));
       const token = signToken(user);
       logger.info(`New user registered (verification skipped): ${email}`);
       return res.status(201).json({
@@ -77,12 +77,14 @@ router.post('/register', [
       },
     });
 
-    // Send verification email — NOT welcome email yet
-    await emailService.sendVerificationEmail(user, verifyToken);
+    // Fire-and-forget — don't block the response on email sending
+    emailService.sendVerificationEmail(user, verifyToken).catch(err =>
+      console.error('Verification email failed:', err)
+    );
 
     logger.info(`New user registered (unverified): ${email}`);
 
-    // Return requiresVerification flag — no token until verified
+    // Return immediately — no token until verified
     res.status(201).json({
       requiresVerification: true,
       message: 'Account created. Please check your email to verify your address before signing in.',
@@ -131,8 +133,10 @@ router.get('/verify-email', async (req, res) => {
       data: { usedAt: new Date() },
     });
 
-    // Send welcome email now
-    await emailService.sendWelcome(record.user);
+    // Fire-and-forget welcome email
+    emailService.sendWelcome(record.user).catch(err =>
+      console.error('Welcome email failed:', err)
+    );
 
     // Issue JWT and redirect to frontend onboarding
     const jwtToken = signToken(record.user);
@@ -175,7 +179,11 @@ router.post('/resend-verification', [
       },
     });
 
-    await emailService.sendVerificationEmail(user, verifyToken);
+    // Fire-and-forget
+    emailService.sendVerificationEmail(user, verifyToken).catch(err =>
+      console.error('Resend verification email failed:', err)
+    );
+
     res.status(200).json({ message: 'A new verification link has been sent to your email.' });
   } catch (err) {
     console.error('RESEND VERIFY ERROR:', err);
@@ -315,7 +323,11 @@ router.post('/forgot-password', [
       },
     });
 
-    await emailService.sendPasswordReset(user, resetToken);
+    // Fire-and-forget
+    emailService.sendPasswordReset(user, resetToken).catch(err =>
+      console.error('Password reset email failed:', err)
+    );
+
     res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
   } catch (err) {
     console.error('FORGOT PASSWORD ERROR:', err);
