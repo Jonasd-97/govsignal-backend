@@ -4,7 +4,7 @@ const { signUnsubscribeToken } = require('../utils/tokens');
 
 const APP_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const API_URL = process.env.BACKEND_URL || process.env.API_URL || APP_URL;
-const FROM = process.env.EMAIL_FROM || 'GovSignal <no-reply@govsignal.ai>';
+const FROM = process.env.EMAIL_FROM || 'HelixGov <no-reply@helixgov.com>';
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
@@ -22,9 +22,9 @@ function wrap(content, userId) {
   <style>
     body{font-family:Inter,Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:0}
     .shell{max-width:720px;margin:0 auto;padding:32px 16px}.card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:28px}
-    .brand{color:#f59e0b;font-weight:700;font-size:20px;margin-bottom:16px}.btn{display:inline-block;background:#f59e0b;color:#111827!important;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
+    .brand{color:#2563eb;font-weight:700;font-size:20px;margin-bottom:16px}.btn{display:inline-block;background:#2563eb;color:#ffffff!important;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
     .opp{border:1px solid #243041;border-radius:12px;padding:14px;margin:12px 0}.opp-title{font-weight:700;margin-bottom:6px}.opp-meta{font-size:13px;color:#94a3b8}.score{display:inline-block;background:#1d4ed8;color:#dbeafe;padding:4px 8px;border-radius:999px;font-size:12px;margin-top:10px}.deadline{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;margin-top:10px;margin-left:8px}.footer{margin-top:18px;color:#94a3b8;font-size:12px}
-  </style></head><body><div class="shell"><div class="card"><div class="brand">GovSignal</div>${content}<div class="footer">GovSignal · ${unsubUrl ? `<a href="${unsubUrl}" style="color:#94a3b8">Unsubscribe</a> · ` : ''}<a href="${APP_URL}" style="color:#94a3b8">Dashboard</a></div></div></div></body></html>`;
+  </style></head><body><div class="shell"><div class="card"><div class="brand">HelixGov</div>${content}<div class="footer">HelixGov · ${unsubUrl ? `<a href="${unsubUrl}" style="color:#94a3b8">Unsubscribe</a> · ` : ''}<a href="${APP_URL}" style="color:#94a3b8">Dashboard</a></div></div></div></body></html>`;
 }
 
 async function sendWelcome(user) {
@@ -32,9 +32,9 @@ async function sendWelcome(user) {
     await transporter.sendMail({
       from: FROM,
       to: user.email,
-      subject: 'Welcome to GovSignal — Your federal bid intelligence platform',
+      subject: 'Welcome to HelixGov — Your federal bid intelligence platform',
       html: wrap(`
-        <h1>Welcome to GovSignal${user.name ? `, ${user.name}` : ''}!</h1>
+        <h1>Welcome to HelixGov${user.name ? `, ${user.name}` : ''}!</h1>
         <p>You now have access to federal contract opportunities from SAM.gov, scored and ranked by how well they match your company profile.</p>
         <p><strong>Get started in 3 steps:</strong></p>
         <p>1. Set up your company profile<br>2. Add your SAM.gov API key in Settings<br>3. Save opportunities and turn on your digest</p>
@@ -59,7 +59,7 @@ async function sendDigest(user, opportunities) {
     await transporter.sendMail({
       from: FROM,
       to: user.email,
-      subject: `GovSignal Daily Digest — ${opportunities.length} new opportunities`,
+      subject: `HelixGov Daily Digest — ${opportunities.length} new opportunities`,
       html: wrap(`
         <h1>Your Daily Opportunity Digest</h1>
         <p>Here are today's top-scoring federal contract opportunities based on your company profile.</p>
@@ -79,7 +79,7 @@ async function sendPasswordReset(user, token) {
     await transporter.sendMail({
       from: FROM,
       to: user.email,
-      subject: 'GovSignal — Reset your password',
+      subject: 'HelixGov — Reset your password',
       html: wrap(`
         <h1>Reset Your Password</h1>
         <p>You requested a password reset. Click below to create a new password. This link expires in 1 hour.</p>
@@ -97,7 +97,7 @@ async function sendSearchAlert(user, searchName, newOpportunities) {
     await transporter.sendMail({
       from: FROM,
       to: user.email,
-      subject: `GovSignal Alert — ${newOpportunities.length} new match${newOpportunities.length > 1 ? 'es' : ''} for "${searchName}"`,
+      subject: `HelixGov Alert — ${newOpportunities.length} new match${newOpportunities.length > 1 ? 'es' : ''} for "${searchName}"`,
       html: wrap(`
         <h1>New Opportunities Matching "${searchName}"</h1>
         <p>${newOpportunities.length} new federal contract opportunit${newOpportunities.length > 1 ? 'ies match' : 'y matches'} your saved search.</p>
@@ -110,4 +110,25 @@ async function sendSearchAlert(user, searchName, newOpportunities) {
   }
 }
 
-module.exports = { sendWelcome, sendDigest, sendPasswordReset, sendSearchAlert };
+async function sendVerificationEmail(user, token) {
+  const verifyUrl = `${API_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+  try {
+    await transporter.sendMail({
+      from: FROM,
+      to: user.email,
+      subject: 'HelixGov — Verify your email address',
+      html: wrap(`
+        <h1>Verify your email${user.name ? `, ${user.name}` : ''}</h1>
+        <p>Thanks for signing up for HelixGov. Click below to verify your email address and activate your 14-day free trial.</p>
+        <p>This link expires in 24 hours.</p>
+        <a href="${verifyUrl}" class="btn">Verify Email →</a>
+        <p style="margin-top:16px;font-size:13px;color:#94a3b8">If you didn't create an account, you can safely ignore this email.</p>
+      `),
+    });
+    logger.info(`Verification email sent to ${user.email}`);
+  } catch (err) {
+    logger.error('Failed to send verification email:', err);
+  }
+}
+
+module.exports = { sendWelcome, sendDigest, sendPasswordReset, sendSearchAlert, sendVerificationEmail };
