@@ -99,6 +99,15 @@ async function runSync(prisma, isManual = false) {
     totalFetched = allOpps.length;
     logger.info(`[SAM Sync] Upserting ${totalFetched} opportunities...`);
 
+    // Debug: log a sample record to see agency field names
+    if (allOpps.length > 0) {
+      const sample = allOpps[0];
+      logger.info(`[SAM Sync] Sample keys: ${Object.keys(sample).join(', ')}`);
+      logger.info(`[SAM Sync] department: ${JSON.stringify(sample.department)}`);
+      logger.info(`[SAM Sync] organizationHierarchy: ${JSON.stringify(sample.organizationHierarchy)}`);
+      logger.info(`[SAM Sync] fullParentPathName: ${JSON.stringify(sample.fullParentPathName)}`);
+    }
+
     // Upsert in batches of 50
     const BATCH = 50;
     for (let i = 0; i < allOpps.length; i += BATCH) {
