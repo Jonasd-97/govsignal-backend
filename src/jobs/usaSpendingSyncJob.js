@@ -264,6 +264,12 @@ async function runUsaSpendingSync(prisma, isManual = false) {
     totalFetched = allRecords.length;
     logger.info(`[USA Spending Sync] ${totalFetched} unique records to upsert...`);
 
+    // Log a sample record to debug field names
+    if (allRecords.length > 0) {
+      logger.info(`[USA Spending Sync] Sample record keys: ${Object.keys(allRecords[0]).join(', ')}`);
+      logger.info(`[USA Spending Sync] Sample agency fields: Awarding Agency=${JSON.stringify(allRecords[0]['Awarding Agency'])}, Funding Agency=${JSON.stringify(allRecords[0]['Funding Agency'])}`);
+    }
+
     // Upsert in batches of 50
     const BATCH = 50;
     for (let i = 0; i < allRecords.length; i += BATCH) {
