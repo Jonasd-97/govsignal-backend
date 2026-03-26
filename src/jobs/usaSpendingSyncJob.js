@@ -264,10 +264,12 @@ async function runUsaSpendingSync(prisma, isManual = false) {
     totalFetched = allRecords.length;
     logger.info(`[USA Spending Sync] ${totalFetched} unique records to upsert...`);
 
-    // Log a sample record to debug field names
+    // Log sample record to debug field names — do this BEFORE upsert loop
     if (allRecords.length > 0) {
-      logger.info(`[USA Spending Sync] Sample record keys: ${Object.keys(allRecords[0]).join(', ')}`);
-      logger.info(`[USA Spending Sync] Sample agency fields: Awarding Agency=${JSON.stringify(allRecords[0]['Awarding Agency'])}, Funding Agency=${JSON.stringify(allRecords[0]['Funding Agency'])}`);
+      const sample = allRecords[0];
+      logger.info(`[USA Spending Sync] Sample keys: ${Object.keys(sample).slice(0, 15).join(', ')}`);
+      logger.info(`[USA Spending Sync] Awarding Agency raw: ${JSON.stringify(sample['Awarding Agency']).slice(0, 200)}`);
+      logger.info(`[USA Spending Sync] Funding Agency raw: ${JSON.stringify(sample['Funding Agency']).slice(0, 200)}`);
     }
 
     // Upsert in batches of 50
