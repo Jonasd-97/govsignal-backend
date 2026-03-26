@@ -173,12 +173,20 @@ async function fetchActiveOpportunities(daysBack = 90) {
   return results;
 }
 
+function extractAgencyName(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'object') {
+    return value.name || value.agency_name || value.toptier_agency_name || null;
+  }
+  return null;
+}
+
 function parseUsaSpendingRecord(raw, naicsCode = null) {
-  // Generate a stable unique ID from USASpending's internal ID
   const noticeId = `usa-${raw['generated_internal_id'] || raw['Award ID'] || Math.random().toString(36).slice(2)}`;
 
-  const agency = raw['Awarding Agency'] || raw['Funding Agency'] || null;
-  const subAgency = raw['Awarding Sub Agency'] || null;
+  const agency = extractAgencyName(raw['Awarding Agency']) || extractAgencyName(raw['Funding Agency']) || null;
+  const subAgency = extractAgencyName(raw['Awarding Sub Agency']) || null;
   const naics = naicsCode || raw['NAICS Code'] || null;
   const awardAmount = raw['Award Amount'] ? Number(raw['Award Amount']) : null;
   const startDate = raw['Start Date'] ? new Date(raw['Start Date']) : null;
